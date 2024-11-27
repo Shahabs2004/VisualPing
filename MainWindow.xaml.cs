@@ -25,7 +25,7 @@ namespace VisualPing
         {
             pinger = new Ping();
             pingTimer = new DispatcherTimer();
-            pingTimer.Interval = TimeSpan.FromMilliseconds(100); // Ping every second
+            pingTimer.Interval = TimeSpan.FromMilliseconds(1000); // Ping every second
             pingTimer.Tick += PingTimer_Tick;
         }
 
@@ -54,7 +54,7 @@ namespace VisualPing
 
             try
             {
-                PingReply reply = await pinger.SendPingAsync(address, 1); // 1-second timeout
+                PingReply reply = await pinger.SendPingAsync(address, 1000); // 1-second timeout
 
                 // Dispatch UI update to main thread
                 Dispatcher.Invoke(() =>
@@ -91,7 +91,7 @@ namespace VisualPing
                 case IPStatus.DestinationHostUnreachable:
                     return Colors.Magenta;
                 case IPStatus.TimedOut:
-                    return Colors.Black;
+                    return Colors.AntiqueWhite;
                 default:
                     return Colors.Red;
             }
@@ -130,7 +130,7 @@ namespace VisualPing
             {
                 // Gradient of green from bright to dark based on ping time
                 // Max out at 250ms for darkest green
-                byte greenIntensity = (byte)Math.Max(0, Math.Min(255, 255 - (pingTime * 255 / 250)));
+                byte greenIntensity = (byte)Math.Max(0, Math.Min(255, 255 - (pingTime * 255 / 1000)));  //1000 is a ping timeout set
                 pixelColor = Color.FromRgb(0, greenIntensity, 0);
             }
 
