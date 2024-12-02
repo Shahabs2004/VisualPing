@@ -34,23 +34,34 @@
 
             <!-- Ping Visualization -->
             <Border BorderBrush="Gray" BorderThickness="1" Margin="0,0,10,0">
-                <Canvas x:Name="pingGraph" Background="Black">
-                    <Canvas.Effect>
-                        <DropShadowEffect Color="#FF656565"/>
-                    </Canvas.Effect>
-                </Canvas>
+                <Grid>
+                    <Canvas x:Name="pingGraph" Background="Black">
+                        <Canvas.Effect>
+                            <DropShadowEffect Color="#FF656565"/>
+                        </Canvas.Effect>
+                    </Canvas>
+                    <Grid x:Name="gridOverlay" IsHitTestVisible="False">
+                        <Grid.Background>
+                            <SolidColorBrush Color="LightGray" Opacity="0.1"/>
+                        </Grid.Background>
+                    </Grid>
+                </Grid>
             </Border>
 
             <!-- Right Panel -->
             <StackPanel Grid.Column="1" Margin="5">
                 <GroupBox Header="Statistics" Margin="0,0,0,10">
                     <StackPanel Margin="5">
+                        <TextBlock Text="Ping Count:"/>
+                        <TextBlock x:Name="txtPingCount" Text="-- times"/>
                         <TextBlock Text="Current Ping:"/>
                         <TextBlock x:Name="txtCurrentPing" Text="-- ms"/>
                         <TextBlock Text="Average Ping:"/>
                         <TextBlock x:Name="txtAveragePing" Text="-- ms"/>
                         <TextBlock Text="Packet Loss:"/>
                         <TextBlock x:Name="txtPacketLoss" Text="-- %"/>
+                        <TextBlock Text="Duration:"/>
+                        <TextBlock x:Name="txtDuration" Text="-- m"/>
                     </StackPanel>
                 </GroupBox>
 
@@ -59,14 +70,19 @@
                         <Label Content="Ping Interval (ms):"/>
                         <ComboBox x:Name="cbInterval" 
                                  SelectionChanged="Interval_Changed">
+                            <ComboBoxItem Content="200"/>
                             <ComboBoxItem Content="500"/>
                             <ComboBoxItem Content="1000"/>
                             <ComboBoxItem Content="2000"/>
+                            <ComboBoxItem Content="5000"/>
+                            <ComboBoxItem Content="10000"/>
                         </ComboBox>
 
                         <Label Content="Timeout (ms):"/>
                         <ComboBox x:Name="cbTimeout"
                                  SelectionChanged="Timeout_Changed">
+                            <ComboBoxItem Content="100"/>
+                            <ComboBoxItem Content="200"/>
                             <ComboBoxItem Content="500"/>
                             <ComboBoxItem Content="1000"/>
                             <ComboBoxItem Content="2000"/>
@@ -79,6 +95,18 @@
                         <CheckBox x:Name="chkSaveLogs" 
                                 Content="Save logs"
                                 Margin="0,5"/>
+
+                        <CheckBox x:Name="chkShowGrid" 
+                                Content="Show Grid"
+                                Margin="0,5"
+                                Checked="ChkShowGrid_Checked"
+                                Unchecked="ChkShowGrid_Unchecked"/>
+
+                        <CheckBox x:Name="chkAlwaysOnTop" 
+                                Content="Always on Top"
+                                Margin="0,5"
+                                Checked="ChkAlwaysOnTop_Checked"
+                                Unchecked="ChkAlwaysOnTop_Unchecked"/>
                     </StackPanel>
                 </GroupBox>
             </StackPanel>

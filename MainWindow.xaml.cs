@@ -22,12 +22,18 @@ namespace VisualPing
         private List<long> pingTimes = new List<long>();
         private int packetsSent = 0;
         private int packetsLost = 0;
+        private int timeout = 1000;
+        private const int GridSpacing = 4; // Pixels between grid lines
+        private List<Line> gridLines = new List<Line>();
 
         public MainWindow()
         {
             InitializeComponent();
             InitializePingTimer();
             InitializeDefaultSettings();
+
+            SizeChanged += (s, e) => UpdateGridLines();
+            pingGraph.SizeChanged += (s, e) => UpdateGridLines();
         }
 
         private void InitializeDefaultSettings()
@@ -53,6 +59,46 @@ namespace VisualPing
                 {
                     pingTimer.Interval = TimeSpan.FromMilliseconds(interval);
                 }
+            }
+        }
+        private void UpdateGridLines()
+        {
+            gridOverlay.Children.Clear();
+            gridLines.Clear();
+
+            if (!chkShowGrid.IsChecked ?? false)
+                return;
+
+            // Vertical lines
+            for (double x = 0; x < pingGraph.ActualWidth; x += GridSpacing)
+            {
+                var line = new Line
+                           {
+                               X1 = x,
+                               Y1 = 0,
+                               X2 = x,
+                               Y2 = pingGraph.ActualHeight,
+                               Stroke = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                               StrokeThickness = 1
+                           };
+                gridLines.Add(line);
+                gridOverlay.Children.Add(line);
+            }
+
+            // Horizontal lines
+            for (double y = 0; y < pingGraph.ActualHeight; y += GridSpacing)
+            {
+                var line = new Line
+                           {
+                               X1 = 0,
+                               Y1 = y,
+                               X2 = pingGraph.ActualWidth,
+                               Y2 = y,
+                               Stroke = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                               StrokeThickness = 1
+                           };
+                gridLines.Add(line);
+                gridOverlay.Children.Add(line);
             }
         }
 
@@ -88,7 +134,7 @@ namespace VisualPing
             if (pingTimer.Tag == null) return;
 
             string address = pingTimer.Tag.ToString();
-            int timeout = 1000;
+            //int timeout = 1000;
 
             if (cbTimeout.SelectedItem is ComboBoxItem selectedItem)
             {
@@ -136,6 +182,7 @@ namespace VisualPing
             {
                 double average = pingTimes.Average();
                 txtAveragePing.Text = $"{average:F1} ms";
+                txtPingCount.Text = pingTimes.Count.ToString();
             }
             else
             {
@@ -194,7 +241,7 @@ namespace VisualPing
             }
             else
             {
-                byte greenIntensity = (byte)Math.Max(0, Math.Min(255, 255 - (pingTime * 255 / 1000)));
+                byte greenIntensity = (byte)Math.Max(0, Math.Min(255, 255 - (pingTime * 255 / timeout)));
                 pixelColor = Color.FromRgb(0, greenIntensity, 0);
             }
 
@@ -250,23 +297,11 @@ namespace VisualPing
         }
 
         // Menu item click handlers
-        private void SaveSettings_Click(object sender, RoutedEventArgs e)
-        {
-            // Implement settings save logic
-        }
 
-        private void LoadSettings_Click(object sender, RoutedEventArgs e)
-        {
-            // Implement settings load logic
-        }
         private void Export_Click(object sender, RoutedEventArgs e)
         
         {
             // Implement log export logic
-        }
-        private void ExportLogs_Click(object sender, RoutedEventArgs e)
-        {
-
         }
 
         private void Exit_Click(object sender, RoutedEventArgs e)
@@ -290,5 +325,124 @@ namespace VisualPing
             pinger?.Dispose();
             base.OnClosed(e);
         }
+
+
+        // Settings class to save/load
+        public class PingSettings
+        {
+            public string Address { get; set; }
+            public int IntervalIndex { get; set; }
+            public int TimeoutIndex { get; set; }
+            public bool AutoStart { get; set; }
+            public bool SaveLogs { get; set; }
+            public bool ShowGrid { get; set; }
+            public bool AlwaysOnTop { get; set; }
+        }
+
+        private void SaveSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var settings = new PingSettings
+            {
+                Address = Address.Text,
+                IntervalIndex = cbInterval.SelectedIndex,
+                TimeoutIndex = cbTimeout.SelectedIndex,
+                AutoStart = chkAutoStart.IsChecked ?? false,
+                SaveLogs = chkSaveLogs.IsChecked ?? false,
+                ShowGrid = chkShowGrid.IsChecked ?? false,
+                AlwaysOnTop = chkAlwaysOnTop.IsChecked ?? false
+            };
+
+            SaveFileDialog saveFileDialog = new SaveFileDialog
+            {
+                Filter = "XML files (*.xml)|*.xml",
+                DefaultExt = "xml"
+            };
+
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                using (var writer = new StreamWriter(saveFileDialog.FileName))
+                {
+                    var serializer = new XmlSerializer(typeof(PingSettings));
+                    serializer.Serialize(writer, settings);
+                }
+            }
+        }
+
+        private void LoadSettings_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Filter = "XML files (*.xml)|*.xml"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                try
+                {
+                    using (var reader = new StreamReader(openFileDialog.FileName))
+                    {
+                        var serializer = new XmlSerializer(typeof(PingSettings));
+                        var settings = (PingSettings)serializer.Deserialize(reader);
+
+                        Address.Text = settings.Address;
+                        cbInterval.SelectedIndex = settings.IntervalIndex;
+                        cbTimeout.SelectedIndex = settings.TimeoutIndex;
+                        chkAutoStart.IsChecked = settings.AutoStart;
+                        chkSaveLogs.IsChecked = settings.SaveLogs;
+                        chkShowGrid.IsChecked = settings.ShowGrid;
+                        chkAlwaysOnTop.IsChecked = settings.AlwaysOnTop;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error loading settings: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void ExportLogs_Click(object sender, RoutedEventArgs e)
+        {
+            SaveFileDialog saveFileDialog = new SaveFileDialog
+            {
+                Filter = "CSV files (*.csv)|*.csv",
+                DefaultExt = "csv"
+            };
+
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                using (var writer = new StreamWriter(saveFileDialog.FileName))
+                {
+                    writer.WriteLine("Time,Ping (ms)");
+                    for (int i = 0; i < pingTimes.Count; i++)
+                    {
+                        writer.WriteLine($"{DateTime.Now.AddMilliseconds(-pingTimes.Count + i * pingTimer.Interval.TotalMilliseconds):yyyy-MM-dd HH:mm:ss.fff},{pingTimes[i]}");
+                    }
+                }
+            }
+        }
+
+        private void ChkShowGrid_Checked(object sender, RoutedEventArgs e)
+        {
+            UpdateGridLines();
+        }
+
+        private void ChkShowGrid_Unchecked(object sender, RoutedEventArgs e)
+        {
+            gridOverlay.Children.Clear();
+            gridLines.Clear();
+        }
+
+        private void ChkAlwaysOnTop_Checked(object sender, RoutedEventArgs e)
+        {
+            this.Topmost = true;
+        }
+
+        private void ChkAlwaysOnTop_Unchecked(object sender, RoutedEventArgs e)
+        {
+            this.Topmost = false;
+        }
+
+
+
     }
 }
