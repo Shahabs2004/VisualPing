@@ -187,10 +187,11 @@ jobs:
           tag="v$VERSION"
           notes="VisualPing $VERSION for Windows. Portable x64 is a single self-contained EXE. The other packages are ZIP archives."
 
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" packages/* --clobber
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" packages/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$tag" packages/* \
+              --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "VisualPing $VERSION" \
               --notes "$notes"
