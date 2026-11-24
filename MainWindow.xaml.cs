@@ -1,448 +1,141 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Net.NetworkInformation;
+﻿using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Shapes;
-using System.Windows.Threading;
-using System.IO;
-using Microsoft.Win32;
-using System.Linq;
-using System.Xml.Serialization;
+using System.Windows.Input;
+using VisualPing.ViewModels;
 
-namespace VisualPing
+namespace VisualPing;
+
+public partial class MainWindow : Window
 {
-    public partial class MainWindow : Window
+    private readonly MainWindowViewModel _viewModel;
+    private Point _dragStart;
+    private bool _isDragCandidate;
+
+    public MainWindow(MainWindowViewModel viewModel)
     {
-        private int currentX = 0;
-        private int currentY = 0;
-        private DispatcherTimer pingTimer;
-        private Ping pinger;
-        private List<long> pingTimes = new List<long>();
-        private int packetsSent = 0;
-        private int packetsLost = 0;
-        private int timeout = 1000;
-        private const int GridSpacing = 4; // Pixels between grid lines
-        private List<Line> gridLines = new List<Line>();
+        InitializeComponent();
+        _viewModel = viewModel;
+        DataContext = _viewModel;
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        pingGraph.MouseLeftButtonDown += PingGraph_MouseLeftButtonDown;
+        pingGraph.MouseMove += PingGraph_MouseMove;
+        pingGraph.MouseLeftButtonUp += PingGraph_MouseLeftButtonUp;
+        UpdateLayout(Width);
+    }
 
-        public MainWindow()
+    private async void Window_Loaded(object sender, RoutedEventArgs eventArguments)
+    {
+        await _viewModel.InitializeAsync();
+    }
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs eventArguments)
+    {
+        UpdateLayout(eventArguments.NewSize.Width);
+    }
+
+    private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs eventArguments)
+    {
+        if (eventArguments.PropertyName != nameof(MainWindowViewModel.IsPureDisplay))
+            return;
+
+        _isDragCandidate = false;
+        if (pingGraph.IsMouseCaptured)
+            pingGraph.ReleaseMouseCapture();
+
+        UpdateLayout(Width);
+    }
+
+    private void PingGraph_MouseLeftButtonDown(object sender, MouseButtonEventArgs eventArguments)
+    {
+        if (eventArguments.ClickCount == 2)
         {
-            InitializeComponent();
-            InitializePingTimer();
-            InitializeDefaultSettings();
-
-            SizeChanged += (s, e) => UpdateGridLines();
-            pingGraph.SizeChanged += (s, e) => UpdateGridLines();
+            _viewModel.TogglePureDisplayCommand.Execute(null);
+            eventArguments.Handled = true;
+            return;
         }
 
-        private void InitializeDefaultSettings()
-        {
-            cbInterval.SelectedIndex = 1; // Default to 1000ms
-            cbTimeout.SelectedIndex = 1;  // Default to 1000ms
-            UpdateTimerInterval();
-        }
+        if (!_viewModel.IsPureDisplay)
+            return;
 
-        private void InitializePingTimer()
-        {
-            pinger = new Ping();
-            pingTimer = new DispatcherTimer();
-            pingTimer.Interval = TimeSpan.FromMilliseconds(1000);
-            pingTimer.Tick += PingTimer_Tick;
-        }
+        _dragStart = eventArguments.GetPosition(this);
+        _isDragCandidate = true;
+        pingGraph.CaptureMouse();
+    }
 
-        private void UpdateTimerInterval()
-        {
-            if (cbInterval.SelectedItem is ComboBoxItem selectedItem)
-            {
-                if (int.TryParse(selectedItem.Content.ToString(), out int interval))
-                {
-                    pingTimer.Interval = TimeSpan.FromMilliseconds(interval);
-                }
-            }
-        }
-        private void UpdateGridLines()
-        {
-            gridOverlay.Children.Clear();
-            gridLines.Clear();
+    private void PingGraph_MouseMove(object sender, MouseEventArgs eventArguments)
+    {
+        if (!_viewModel.IsPureDisplay || !_isDragCandidate || eventArguments.LeftButton != MouseButtonState.Pressed)
+            return;
 
-            if (!chkShowGrid.IsChecked ?? false)
-                return;
+        var position = eventArguments.GetPosition(this);
+        if (Math.Abs(position.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(position.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
 
-            // Vertical lines
-            for (double x = 0; x < pingGraph.ActualWidth; x += GridSpacing)
-            {
-                var line = new Line
-                           {
-                               X1 = x,
-                               Y1 = 0,
-                               X2 = x,
-                               Y2 = pingGraph.ActualHeight,
-                               Stroke = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
-                               StrokeThickness = 1
-                           };
-                gridLines.Add(line);
-                gridOverlay.Children.Add(line);
-            }
+        _isDragCandidate = false;
+        pingGraph.ReleaseMouseCapture();
+        DragMove();
+    }
 
-            // Horizontal lines
-            for (double y = 0; y < pingGraph.ActualHeight; y += GridSpacing)
-            {
-                var line = new Line
-                           {
-                               X1 = 0,
-                               Y1 = y,
-                               X2 = pingGraph.ActualWidth,
-                               Y2 = y,
-                               Stroke = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
-                               StrokeThickness = 1
-                           };
-                gridLines.Add(line);
-                gridOverlay.Children.Add(line);
-            }
-        }
+    private void PingGraph_MouseLeftButtonUp(object sender, MouseButtonEventArgs eventArguments)
+    {
+        _isDragCandidate = false;
+        if (pingGraph.IsMouseCaptured)
+            pingGraph.ReleaseMouseCapture();
+    }
 
-        private void Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (pingTimer.IsEnabled)
-            {
-                pingTimer.Stop();
-                btnPing.Content = "Start Ping";
-            }
-            else
-            {
-                string address = Address.Text.Trim();
-                pingTimer.Tag = address;
-                pingTimer.Start();
-                btnPing.Content = "Stop Ping";
-            }
-        }
+    private void UpdateLayout(double width)
+    {
+        var isPureDisplay = _viewModel.IsPureDisplay;
+        var isCompact = width < 900;
+        var chromeVisibility = isPureDisplay ? Visibility.Collapsed : Visibility.Visible;
 
-        private void Clear_Click(object sender, RoutedEventArgs e)
-        {
-            pingGraph.Children.Clear();
-            currentX = 0;
-            currentY = 0;
-            pingTimes.Clear();
-            packetsSent = 0;
-            packetsLost = 0;
-            UpdateStatistics();
-        }
+        MinWidth = isPureDisplay ? 200 : 420;
+        MinHeight = isPureDisplay ? 160 : 480;
+        headerBorder.Visibility = chromeVisibility;
+        pingControlsBorder.Visibility = chromeVisibility;
+        statusBorder.Visibility = chromeVisibility;
+        windowLayout.RowDefinitions[0].Height = isPureDisplay ? new GridLength(0) : GridLength.Auto;
+        windowLayout.RowDefinitions[1].Height = new GridLength(1, GridUnitType.Star);
+        windowLayout.RowDefinitions[2].Height = isPureDisplay ? new GridLength(0) : GridLength.Auto;
+        windowLayout.RowDefinitions[3].Height = isPureDisplay ? new GridLength(0) : GridLength.Auto;
 
-        private async void PingTimer_Tick(object sender, EventArgs e)
-        {
-            if (pingTimer.Tag == null) return;
+        contentScroll.VerticalScrollBarVisibility = !isPureDisplay && isCompact
+            ? ScrollBarVisibility.Auto
+            : ScrollBarVisibility.Disabled;
+        contentGrid.Margin = isPureDisplay ? new Thickness(0) : new Thickness(20);
+        contentGrid.ColumnDefinitions[1].Width = !isPureDisplay && !isCompact ? new GridLength(240) : new GridLength(0);
+        contentGrid.RowDefinitions[0].Height = !isPureDisplay && isCompact
+            ? GridLength.Auto
+            : new GridLength(1, GridUnitType.Star);
+        contentGrid.RowDefinitions[1].Height = !isPureDisplay && isCompact ? GridLength.Auto : new GridLength(0);
 
-            string address = pingTimer.Tag.ToString();
-            //int timeout = 1000;
+        Grid.SetColumn(graphHost, 0);
+        Grid.SetColumnSpan(graphHost, isPureDisplay || isCompact ? 2 : 1);
+        graphHost.Height = !isPureDisplay && isCompact ? 260 : double.NaN;
+        graphHost.MinHeight = isPureDisplay ? 0 : 160;
+        graphHost.Margin = isPureDisplay ? new Thickness(0) : new Thickness(0, 0, 10, 0);
+        graphHost.BorderThickness = isPureDisplay ? new Thickness(0) : new Thickness(1);
+        graphHost.CornerRadius = new CornerRadius(isPureDisplay ? 0 : 10);
 
-            if (cbTimeout.SelectedItem is ComboBoxItem selectedItem)
-            {
-                int.TryParse(selectedItem.Content.ToString(), out timeout);
-            }
+        sidePanel.Visibility = isPureDisplay ? Visibility.Collapsed : Visibility.Visible;
+        Grid.SetRow(sidePanel, !isPureDisplay && isCompact ? 1 : 0);
+        Grid.SetColumn(sidePanel, !isPureDisplay && isCompact ? 0 : 1);
+        Grid.SetColumnSpan(sidePanel, !isPureDisplay && isCompact ? 2 : 1);
+        sidePanel.Width = !isPureDisplay && !isCompact ? 240 : double.NaN;
+        sidePanel.Orientation = !isPureDisplay && isCompact && width >= 700 ? Orientation.Horizontal : Orientation.Vertical;
+        sidePanel.Margin = !isPureDisplay && isCompact ? new Thickness(0, 12, 0, 0) : new Thickness(0);
 
-            try
-            {
-                packetsSent++;
-                PingReply reply = await pinger.SendPingAsync(address, timeout);
+        historyOverlay.Visibility = isPureDisplay ? Visibility.Collapsed : Visibility.Visible;
+        historySummaryText.Visibility = !isPureDisplay && width < 700 ? Visibility.Collapsed : Visibility.Visible;
+        pingGraph.Cursor = isPureDisplay ? Cursors.SizeAll : Cursors.Arrow;
+    }
 
-                Dispatcher.Invoke(() =>
-                {
-                    if (reply.Status == IPStatus.Success)
-                    {
-                        pingTimes.Add(reply.RoundtripTime);
-                        AddPixelToCanvas(reply.RoundtripTime);
-                        txtCurrentPing.Text = $"{reply.RoundtripTime} ms";
-                    }
-                    else
-                    {
-                        packetsLost++;
-                        Color errorColor = GetErrorColor(reply.Status);
-                        AddPixelToCanvas(errorColor, 0);
-                        txtCurrentPing.Text = "Failed";
-                    }
-                    UpdateStatistics();
-                });
-            }
-            catch (Exception ex)
-            {
-                Dispatcher.Invoke(() =>
-                {
-                    packetsLost++;
-                    AddPixelToCanvas(Colors.Red, 0);
-                    txtCurrentPing.Text = "Error";
-                    UpdateStatistics();
-                });
-            }
-        }
-
-        private void UpdateStatistics()
-        {
-            if (pingTimes.Count > 0)
-            {
-                double average = pingTimes.Average();
-                txtAveragePing.Text = $"{average:F1} ms";
-                txtPingCount.Text = pingTimes.Count.ToString();
-            }
-            else
-            {
-                txtAveragePing.Text = "-- ms";
-            }
-
-            if (packetsSent > 0)
-            {
-                double lossRate = (double)packetsLost / packetsSent * 100;
-                txtPacketLoss.Text = $"{lossRate:F1}%";
-            }
-            else
-            {
-                txtPacketLoss.Text = "0%";
-            }
-        }
-
-        private Color GetErrorColor(IPStatus status)
-        {
-            switch (status)
-            {
-                case IPStatus.DestinationNetworkUnreachable:
-                    return Colors.CadetBlue;
-                case IPStatus.DestinationHostUnreachable:
-                    return Colors.Magenta;
-                case IPStatus.TimedOut:
-                    return Colors.Red;
-                default:
-                    return Colors.Black;
-            }
-        }
-
-        private void AddPixelToCanvas(long pingTime, int errorColorIntensity = 0)
-        {
-            if (currentX >= pingGraph.ActualWidth)
-            {
-                currentX = 0;
-                currentY += 4;
-            }
-
-            if (currentY >= pingGraph.ActualHeight)
-            {
-                pingGraph.Children.Clear();
-                currentX = 0;
-                currentY = 0;
-            }
-
-            Color pixelColor;
-            if (errorColorIntensity > 0)
-            {
-                pixelColor = Color.FromRgb((byte)errorColorIntensity, 0, 0);
-            }
-            else if (pingTime <= 10)
-            {
-                pixelColor = Color.FromRgb(0, 255, 0);
-            }
-            else
-            {
-                byte greenIntensity = (byte)Math.Max(0, Math.Min(255, 255 - (pingTime * 255 / timeout)));
-                pixelColor = Color.FromRgb(0, greenIntensity, 0);
-            }
-
-            Rectangle pixel = new Rectangle
-            {
-                Width = 4,
-                Height = 4,
-                Fill = new SolidColorBrush(pixelColor)
-            };
-
-            Canvas.SetLeft(pixel, currentX);
-            Canvas.SetTop(pixel, currentY);
-            pingGraph.Children.Add(pixel);
-            currentX += 4;
-        }
-
-        private void AddPixelToCanvas(Color errorColor, int dummy)
-        {
-            if (currentX >= pingGraph.ActualWidth)
-            {
-                currentX = 0;
-                currentY += 4;
-            }
-
-            if (currentY >= pingGraph.ActualHeight)
-            {
-                pingGraph.Children.Clear();
-                currentX = 0;
-                currentY = 0;
-            }
-
-            Rectangle pixel = new Rectangle
-            {
-                Width = 4,
-                Height = 4,
-                Fill = new SolidColorBrush(errorColor)
-            };
-
-            Canvas.SetLeft(pixel, currentX);
-            Canvas.SetTop(pixel, currentY);
-            pingGraph.Children.Add(pixel);
-            currentX += 4;
-        }
-
-        private void Interval_Changed(object sender, SelectionChangedEventArgs e)
-        {
-            UpdateTimerInterval();
-        }
-
-        private void Timeout_Changed(object sender, SelectionChangedEventArgs e)
-        {
-            // Timeout value is used directly in the PingTimer_Tick method
-        }
-
-        // Menu item click handlers
-
-        private void Export_Click(object sender, RoutedEventArgs e)
-        
-        {
-            // Implement log export logic
-        }
-
-        private void Exit_Click(object sender, RoutedEventArgs e)
-        {
-            Close();
-        }
-
-        private void ShowStats_Click(object sender, RoutedEventArgs e)
-        {
-            // Implement statistics window
-        }
-
-        private void ShowSettings_Click(object sender, RoutedEventArgs e)
-        {
-            // Implement settings window
-        }
-
-        protected override void OnClosed(EventArgs e)
-        {
-            pingTimer?.Stop();
-            pinger?.Dispose();
-            base.OnClosed(e);
-        }
-
-
-        // Settings class to save/load
-        public class PingSettings
-        {
-            public string Address { get; set; }
-            public int IntervalIndex { get; set; }
-            public int TimeoutIndex { get; set; }
-            public bool AutoStart { get; set; }
-            public bool SaveLogs { get; set; }
-            public bool ShowGrid { get; set; }
-            public bool AlwaysOnTop { get; set; }
-        }
-
-        private void SaveSettings_Click(object sender, RoutedEventArgs e)
-        {
-            var settings = new PingSettings
-            {
-                Address = Address.Text,
-                IntervalIndex = cbInterval.SelectedIndex,
-                TimeoutIndex = cbTimeout.SelectedIndex,
-                AutoStart = chkAutoStart.IsChecked ?? false,
-                SaveLogs = chkSaveLogs.IsChecked ?? false,
-                ShowGrid = chkShowGrid.IsChecked ?? false,
-                AlwaysOnTop = chkAlwaysOnTop.IsChecked ?? false
-            };
-
-            SaveFileDialog saveFileDialog = new SaveFileDialog
-            {
-                Filter = "XML files (*.xml)|*.xml",
-                DefaultExt = "xml"
-            };
-
-            if (saveFileDialog.ShowDialog() == true)
-            {
-                using (var writer = new StreamWriter(saveFileDialog.FileName))
-                {
-                    var serializer = new XmlSerializer(typeof(PingSettings));
-                    serializer.Serialize(writer, settings);
-                }
-            }
-        }
-
-        private void LoadSettings_Click(object sender, RoutedEventArgs e)
-        {
-            OpenFileDialog openFileDialog = new OpenFileDialog
-            {
-                Filter = "XML files (*.xml)|*.xml"
-            };
-
-            if (openFileDialog.ShowDialog() == true)
-            {
-                try
-                {
-                    using (var reader = new StreamReader(openFileDialog.FileName))
-                    {
-                        var serializer = new XmlSerializer(typeof(PingSettings));
-                        var settings = (PingSettings)serializer.Deserialize(reader);
-
-                        Address.Text = settings.Address;
-                        cbInterval.SelectedIndex = settings.IntervalIndex;
-                        cbTimeout.SelectedIndex = settings.TimeoutIndex;
-                        chkAutoStart.IsChecked = settings.AutoStart;
-                        chkSaveLogs.IsChecked = settings.SaveLogs;
-                        chkShowGrid.IsChecked = settings.ShowGrid;
-                        chkAlwaysOnTop.IsChecked = settings.AlwaysOnTop;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error loading settings: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-        }
-
-        private void ExportLogs_Click(object sender, RoutedEventArgs e)
-        {
-            SaveFileDialog saveFileDialog = new SaveFileDialog
-            {
-                Filter = "CSV files (*.csv)|*.csv",
-                DefaultExt = "csv"
-            };
-
-            if (saveFileDialog.ShowDialog() == true)
-            {
-                using (var writer = new StreamWriter(saveFileDialog.FileName))
-                {
-                    writer.WriteLine("Time,Ping (ms)");
-                    for (int i = 0; i < pingTimes.Count; i++)
-                    {
-                        writer.WriteLine($"{DateTime.Now.AddMilliseconds(-pingTimes.Count + i * pingTimer.Interval.TotalMilliseconds):yyyy-MM-dd HH:mm:ss.fff},{pingTimes[i]}");
-                    }
-                }
-            }
-        }
-
-        private void ChkShowGrid_Checked(object sender, RoutedEventArgs e)
-        {
-            UpdateGridLines();
-        }
-
-        private void ChkShowGrid_Unchecked(object sender, RoutedEventArgs e)
-        {
-            gridOverlay.Children.Clear();
-            gridLines.Clear();
-        }
-
-        private void ChkAlwaysOnTop_Checked(object sender, RoutedEventArgs e)
-        {
-            this.Topmost = true;
-        }
-
-        private void ChkAlwaysOnTop_Unchecked(object sender, RoutedEventArgs e)
-        {
-            this.Topmost = false;
-        }
-
-
-
+    protected override void OnClosed(EventArgs eventArguments)
+    {
+        _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        _viewModel.Dispose();
+        base.OnClosed(eventArguments);
     }
 }
